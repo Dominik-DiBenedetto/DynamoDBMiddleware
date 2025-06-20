@@ -11,17 +11,72 @@ dynamodb = boto3.resource(
 )
 table = dynamodb.Table('Pet_System_Test')
 
-@app.get("/")
-def root():
-    return {"message": "API is up!"}
-
-@app.get("/get_pet_data/{pet_name}/{pet_id}")
-def get_player_data(pet_name: str, pet_id: str):
-    response = table.get_item(Key={'pet_name': pet_name, 'pet_id': pet_id})
+@app.get("/get_player_pets/{player_id}")
+def get_player_pets(player_id: str):
+    response = table.get_item(Key={'OwnerId': player_id})
     return response.get('Item', {"error": "Not found"})
 
-@app.post("/set_pet_data")  # ← MUST be POST!
-async def set_pet_data(req: Request):
+@app.get("/get_pet_data/{player_id}/{pet_id}")
+def get_player_data(player_id: str, pet_id: str):
+    response = table.get_item(Key={'OwnerId': player_id, 'PetId': pet_id})
+    return response.get('Item', {"error": "Not found"})
+
+@app.post("/add_pet")
+async def add_pet(req: Request):
     data = await req.json()
     table.put_item(Item=data)
     return {"status": "saved", "data": data}
+
+@app.post("/update_pet_data")
+async def update_pet_data(req: Request):
+    data = await req.json()
+    
+    player_id = data["OwnerId"]
+    pet_id = data["PetId"]
+    updates = data["Updates"]
+
+    if updates["OwnerId"]:
+        # Delete old pet
+        newOwnerId = updates["OwnerId"]
+        del updates["OwnerId"]
+
+        deleteResponse = table.delete_item(
+            Key={
+                "OwnerId": newOwnerId,
+                "PetId": pet_id
+            }
+        )
+
+        # Create new pet data for the new owner (same pet id)
+        pet = {k: v for k, v in updates}
+        pet["OwnerId"] = newOwnerId
+        pet["PetId"] = pet_id
+        print("TRADED 'NEW' PET!")
+        print(pet)
+
+        newResponse = table.put_item(Item=pet)
+
+        return {"status": "pet traded!", "deletionResponse": deleteResponse, "creationRespone": newResponse}
+
+    update_expr = "SET " + ", ".join(f"#{k} = :{k}" for k in updates)
+    expr_attr_names = {f"#{k}": k for k in updates}
+    expr_attr_values = {f":{k}": v for k, v in updates.items()}
+
+    table.update_item(
+        Key={"OwnerId": player_id, "PetId": pet_id},
+        UpdateExpression=update_expr,
+        ExpressionAttributeNames=expr_attr_names,
+        ExpressionAttributeValues=expr_attr_values
+    )
+
+    return {"status": "updated"}
+
+@app.delete("/delete_pet_data/{player_id}/{pet_id}")
+def delete_player_data(player_id: str, pet_id: str):
+    response = table.delete_item(
+        Key={
+            "OwnerId": player_id,
+            "PetId": pet_id
+        }
+    )
+    return {"status": "deleted", "details": response}
