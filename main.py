@@ -11,8 +11,8 @@ def get_player_data(pet_id: str):
     response = table.get_item(Key={'PetId': pet_id})
     return response.get('Item', {})
 
-@app.post("/set_player_data")
-async def set_player_data(req: Request):
+@app.post("/set_pet_data")
+async def set_pet_data(req: Request):
     data = await req.json()
     table.put_item(Item=data)
     return {"status": "success"}
