@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 import boto3, os
+from boto3.dynamodb.conditions import Key
 
 app = FastAPI()
 
@@ -13,11 +14,13 @@ table = dynamodb.Table('Pet_System_Test')
 
 @app.get("/get_player_pets/{player_id}")
 def get_player_pets(player_id: str):
-    response = table.get_item(Key={'OwnerId': player_id})
-    return response.get('Item', {"error": "Not found"})
+    response = table.query(
+        KeyConditionExpression=Key("OwnerId").eq(player_id)
+    )
+    return response.get('Items', [])
 
 @app.get("/get_pet_data/{player_id}/{pet_id}")
-def get_player_data(player_id: str, pet_id: str):
+def get_pet_data(player_id: str, pet_id: str):
     response = table.get_item(Key={'OwnerId': player_id, 'PetId': pet_id})
     return response.get('Item', {"error": "Not found"})
 
