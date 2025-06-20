@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 import boto3, os
 from boto3.dynamodb.conditions import Key
+from decimal import Decimal
 
 app = FastAPI()
 
@@ -11,6 +12,16 @@ dynamodb = boto3.resource(
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
 )
 table = dynamodb.Table('Pet_System_Test')
+
+def convert_floats(obj):
+    if isinstance(obj, list):
+        return [convert_floats(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_floats(v) for k, v in obj.items()}
+    elif isinstance(obj, float):
+        return Decimal(str(obj))
+    else:
+        return obj
 
 @app.get("/get_player_pets/{player_id}")
 def get_player_pets(player_id: str):
@@ -27,12 +38,14 @@ def get_pet_data(player_id: str, pet_id: str):
 @app.post("/add_pet")
 async def add_pet(req: Request):
     data = await req.json()
+    data = convert_floats(data)
     table.put_item(Item=data)
     return {"status": "saved", "data": data}
 
 @app.post("/update_pet_data")
 async def update_pet_data(req: Request):
     data = await req.json()
+    data = convert_floats(data)
     
     player_id = data["OwnerId"]
     pet_id = data["PetId"]
