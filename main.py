@@ -6,6 +6,10 @@ app = FastAPI()
 dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
 table = dynamodb.Table('Pet_System_Test')
 
+@app.get("/")
+def root():
+    return {"message": "API is up!"}
+
 @app.get("/get_pet_data/{pet_id}")
 def get_player_data(pet_id: str):
     response = table.get_item(Key={'PetId': pet_id})
