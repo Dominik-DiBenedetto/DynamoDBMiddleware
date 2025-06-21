@@ -59,6 +59,7 @@ async def add_pets(req: Request):
         pet_id = pet["PetId"]
         new_version = int(pet.get("Version", 0))
         old_version = existing_versions.get(pet_id, 0)
+        print(f"New {new_version} | Old {old_version}")
 
         if new_version > old_version:
             pets_to_write.append(pet)
