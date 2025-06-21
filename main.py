@@ -42,6 +42,18 @@ async def add_pet(req: Request):
     table.put_item(Item=data)
     return {"status": "saved", "data": data}
 
+
+@app.post("/add_pets")
+async def add_pets(req: Request):
+    data = await req.json()
+    items = convert_floats(data)
+
+    with table.meta.client.batch_writer() as batch:
+        for item in items:
+            batch.put_item(Item=item)
+
+    return {"status": "batch insert successful", "count": len(items)}
+
 @app.post("/update_pet_data")
 async def update_pet_data(req: Request):
     data = await req.json()
