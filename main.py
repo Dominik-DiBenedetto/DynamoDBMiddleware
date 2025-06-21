@@ -48,7 +48,7 @@ async def add_pets(req: Request):
     data = await req.json()
     items = convert_floats(data)
 
-    with table.meta.client.batch_writer() as batch:
+    with table.batch_writer() as batch:
         for item in items:
             batch.put_item(Item=item)
 
