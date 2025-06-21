@@ -52,14 +52,13 @@ async def add_pets(req: Request):
     for item in items:
         res = table.get_item(Key={"PlayerId": item["OwnerId"], "PetId": item["PetId"]})
         if "Item" in res:
-            existing_versions[pet_id] = int(res["Item"].get("Version", 0))
+            existing_versions[item["PetId"]] = int(res["Item"].get("Version", 0))
     
     pets_to_write = []
     for pet in items:
         pet_id = pet["PetId"]
         new_version = int(pet.get("Version", 0))
         old_version = existing_versions.get(pet_id, 0)
-        print(f"New {new_version} | Old {old_version}")
 
         if new_version > old_version:
             pets_to_write.append(pet)
@@ -70,7 +69,7 @@ async def add_pets(req: Request):
         for pet in pets_to_write:
             batch.put_item(Item=pet)
 
-    return {"status": "batch insert successful", "count": len(items), "skipped": len(items) - len(pets_to_write)}
+    return {"status": "batch insert successful", "written": len(pets_to_write), "skipped": len(items) - len(pets_to_write)}
 
 @app.post("/update_pet_data")
 async def update_pet_data(req: Request):
