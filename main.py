@@ -59,7 +59,7 @@ async def add_pets(req: Request):
         pet_id = pet["PetId"]
         new_version = int(pet.get("Version", 0))
         old_version = existing_versions.get(pet_id, 0)
-        
+
         if new_version > old_version:
             pets_to_write.append(pet)
         else:
@@ -69,7 +69,7 @@ async def add_pets(req: Request):
         for pet in pets_to_write:
             batch.put_item(Item=pet)
 
-    return {"status": "batch insert successful", "items": items, "existing": existing_versions, "writing": pets_to_write}
+    return {"status": "batch insert successful", "wrote": len(pets_to_write), "skipped": len(existing_versions.keys())-len(pets_to_write)}
 @app.post("/update_pet_data")
 async def update_pet_data(req: Request):
     data = await req.json()
