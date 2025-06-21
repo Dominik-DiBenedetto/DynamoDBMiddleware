@@ -48,29 +48,28 @@ async def add_pets(req: Request):
     data = await req.json()
     items = convert_floats(data)
 
-    new_version = int(data.get("Version", 0))
-    pet_id = data.get("PetId")
-    # Get current version (if any)
-    response = table.query(
-        KeyConditionExpression=Key('PetId').eq(player_id),
-        Limit=1,  # Sort key can affect this — optional
-        ScanIndexForward=False
-    )
+    existing_versions = {}
+    for item in items:
+        res = table.get_item(Key={"PlayerId": item["OwnerId"], "PetId": item["PetId"]})
+        if "Item" in res:
+            existing_versions[pet_id] = int(res["Item"].get("Version", 0))
+    
+    pets_to_write = []
+    for pet in items:
+        pet_id = pet["PetId"]
+        new_version = int(pet.get("Version", 0))
+        old_version = existing_versions.get(pet_id, 0)
 
-    current_version = 0
-    if response["Count"] > 0:
-        item = response["Items"][0]
-        current_version = int(item.get("Version", 0))
-
-    if new_version <= current_version:
-        return {"status": "rejected", "reason": "stale version", "current": current_version}
+        if new_version > old_version:
+            pets_to_write.append(pet)
+        else:
+            print(f"Skipping stale update: {pet_id} (new {new_version} <= old {old_version})")
 
     with table.batch_writer() as batch:
-        for item in items:
-            items["Version"] = new_version
-            batch.put_item(Item=item)
+        for pet in pets_to_write:
+            batch.put_item(Item=pet)
 
-    return {"status": "batch insert successful", "count": len(items), "version": new_version}
+    return {"status": "batch insert successful", "count": len(items), "skipped": len(items) - len(pets_to_write)}
 
 @app.post("/update_pet_data")
 async def update_pet_data(req: Request):
