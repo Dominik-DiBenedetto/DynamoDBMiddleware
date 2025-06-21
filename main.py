@@ -48,11 +48,29 @@ async def add_pets(req: Request):
     data = await req.json()
     items = convert_floats(data)
 
+    new_version = int(data.get("Version", 0))
+    pet_id = data.get("PetId")
+    # Get current version (if any)
+    response = table.query(
+        KeyConditionExpression=Key('PetId').eq(player_id),
+        Limit=1,  # Sort key can affect this — optional
+        ScanIndexForward=False
+    )
+
+    current_version = 0
+    if response["Count"] > 0:
+        item = response["Items"][0]
+        current_version = int(item.get("Version", 0))
+
+    if new_version <= current_version:
+        return {"status": "rejected", "reason": "stale version", "current": current_version}
+
     with table.batch_writer() as batch:
         for item in items:
+            items["Version"] = new_version
             batch.put_item(Item=item)
 
-    return {"status": "batch insert successful", "count": len(items)}
+    return {"status": "batch insert successful", "count": len(items), "version": new_version}
 
 @app.post("/update_pet_data")
 async def update_pet_data(req: Request):
