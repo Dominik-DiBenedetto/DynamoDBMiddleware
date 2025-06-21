@@ -48,22 +48,18 @@ async def add_pets(req: Request):
     data = await req.json()
     items = convert_floats(data)
 
-    print(items)
     existing_versions = {}
     for item in items:
-        res = table.get_item(Key={"PlayerId": item["OwnerId"], "PetId": item["PetId"]})
+        res = table.get_item(Key={"OwnerId": item["OwnerId"], "PetId": item["PetId"]})
         if "Item" in res:
             existing_versions[item["PetId"]] = int(res["Item"].get("Version", 0))
-    
-    print("Existing versions:", existing_versions)
 
     pets_to_write = []
     for pet in items:
         pet_id = pet["PetId"]
         new_version = int(pet.get("Version", 0))
         old_version = existing_versions.get(pet_id, 0)
-
-        print("Version check:", pet_id, "New:", new_version, "Old:", old_version)
+        
         if new_version > old_version:
             pets_to_write.append(pet)
         else:
