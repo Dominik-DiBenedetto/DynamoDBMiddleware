@@ -127,7 +127,7 @@ async def trade_pets(req: Request):
         pet_id = pet["PetId"]
         new_version = int(pet.get("Version", 0))
 
-        res = table.get_item(Key={"PlayerId": old_owner_id, "PetId": pet_id})
+        res = table.get_item(Key={"OwnerId": old_owner_id, "PetId": pet_id})
         if "Item" not in res:
             continue
 
