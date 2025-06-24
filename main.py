@@ -86,7 +86,7 @@ async def update_pet_data(req: Request):
 
         deleteResponse = table.delete_item(
             Key={
-                "OwnerId": newOwnerId,
+                "OwnerId": player_id,
                 "PetId": pet_id
             }
         )
@@ -114,6 +114,48 @@ async def update_pet_data(req: Request):
     )
 
     return {"status": "updated"}
+
+@app.post("/trade_pets")
+async def trade_pets(req: Request):
+    data = await req.json()
+    pets = convert_floats(data)
+    deletion_keys = []
+    pets_to_write = []
+    
+    for pet in pets:
+        old_owner_id = pet["PreviousOwnerId"]
+        pet_id = pet["PetId"]
+        new_version = int(pet.get("Version", 0))
+
+        res = table.get_item(Key={"PlayerId": old_owner_id, "PetId": pet_id})
+        if "Item" not in res:
+            continue
+
+        existing_version = int(res["Item"].get("Version", 0))
+        if new_version <= existing_version: # old version
+            continue
+        
+        deletion_keys.append({
+                "OwnerId": old_owner_id,
+                "PetId": pet_id
+        })
+        pets_to_write.append(pet)
+    
+    with table.batch_writer() as batch:
+        for key in deletion_keys:
+            batch.delete_item(Key=key)
+        for pet in pets_to_write:
+            batch.put_item(Item=pet)
+    
+    return {
+        "status": "ok",
+        "transferred": len(pets_to_write),
+        "skipped/failed": len(pets) - len(pets_to_write)
+    }
+        
+
+
+
 
 @app.delete("/delete_pet_data/{player_id}/{pet_id}")
 def delete_player_data(player_id: str, pet_id: str):
