@@ -1,9 +1,15 @@
 from fastapi import FastAPI, Request
-import boto3, os
+import boto3, os, time
 from boto3.dynamodb.conditions import Key
 from decimal import Decimal
+from dotenv import load_dotenv
+from botocore.exceptions import ClientError
+
+load_dotenv()
 
 app = FastAPI()
+
+# python -m uvicorn main:app --host=127.0.0.1 --port=5050
 
 dynamodb = boto3.resource(
     'dynamodb',
@@ -28,7 +34,8 @@ def get_player_pets(player_id: str):
     response = table.query(
         KeyConditionExpression=Key("OwnerId").eq(player_id)
     )
-    return response.get('Items', [])
+    valid_pets = [item for item in response.get("Items", []) if not item.get("Deleted", False)]
+    return valid_pets
 
 @app.get("/get_pet_data/{player_id}/{pet_id}")
 def get_pet_data(player_id: str, pet_id: str):
@@ -39,7 +46,13 @@ def get_pet_data(player_id: str, pet_id: str):
 async def add_pet(req: Request):
     data = await req.json()
     data = convert_floats(data)
-    table.put_item(Item=data)
+    try:
+        table.put_item(Item=data,ConditionExpression="attribute_not_exists(Version) OR Version < :new_version",
+        ExpressionAttributeValues={":new_version": data["Version"]})
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            return {"status": "skipped", "reason": "older version"}
+        raise e  # re-raise for other unexpected errors
     return {"status": "saved", "data": data}
 
 
@@ -49,21 +62,25 @@ async def add_pets(req: Request):
     items = convert_floats(data)
 
     existing_versions = {}
+    deleted_pets = {}
     for item in items:
+        print(item)
         res = table.get_item(Key={"OwnerId": item["OwnerId"], "PetId": item["PetId"]})
         if "Item" in res:
             existing_versions[item["PetId"]] = int(res["Item"].get("Version", 0))
+            if (res["Item"].get("Deleted", False)):
+                deleted_pets[item["PetId"]] = True
 
     pets_to_write = []
     for pet in items:
         pet_id = pet["PetId"]
+        if deleted_pets.get(pet_id): continue
+        
         new_version = int(pet.get("Version", 0))
         old_version = existing_versions.get(pet_id, 0)
 
         if new_version > old_version:
             pets_to_write.append(pet)
-        else:
-            print(f"Skipping stale update: {pet_id} (new {new_version} <= old {old_version})")
 
     with table.batch_writer() as batch:
         for pet in pets_to_write:
@@ -78,29 +95,6 @@ async def update_pet_data(req: Request):
     player_id = data["OwnerId"]
     pet_id = data["PetId"]
     updates = data["Updates"]
-
-    if updates["OwnerId"]:
-        # Delete old pet
-        newOwnerId = updates["OwnerId"]
-        del updates["OwnerId"]
-
-        deleteResponse = table.delete_item(
-            Key={
-                "OwnerId": player_id,
-                "PetId": pet_id
-            }
-        )
-
-        # Create new pet data for the new owner (same pet id)
-        pet = {k: v for k, v in updates}
-        pet["OwnerId"] = newOwnerId
-        pet["PetId"] = pet_id
-        print("TRADED 'NEW' PET!")
-        print(pet)
-
-        newResponse = table.put_item(Item=pet)
-
-        return {"status": "pet traded!", "deletionResponse": deleteResponse, "creationRespone": newResponse}
 
     update_expr = "SET " + ", ".join(f"#{k} = :{k}" for k in updates)
     expr_attr_names = {f"#{k}": k for k in updates}
@@ -152,17 +146,45 @@ async def trade_pets(req: Request):
         "transferred": len(pets_to_write),
         "skipped/failed": len(pets) - len(pets_to_write)
     }
-        
 
-
-
-
-@app.delete("/delete_pet_data/{player_id}/{pet_id}")
-def delete_player_data(player_id: str, pet_id: str):
-    response = table.delete_item(
-        Key={
+@app.post("/delete_pet/{player_id}/{pet_id}")
+def delete_pet(player_id: str, pet_id: str):
+    now = int(time.time())
+    ttl_time = now + 600  # delete after 10 minutes
+    item = {
             "OwnerId": player_id,
-            "PetId": pet_id
+            "PetId": pet_id,
+            "Deleted": True,
+            "Version": now,
+            "TTL": ttl_time
         }
-    )
-    return {"status": "deleted", "details": response}
+    response = table.put_item(Item=item)
+    return {"status": "soft deleted", "details": response}
+
+@app.delete("/delete_pets")
+async def delete_pets(req: Request):
+    data = await req.json()
+    pets = convert_floats(data)
+    pets_to_write = []
+
+    for pet in pets:
+        player_id = pet["OwnerId"]
+        pet_id = pet["PetId"]
+
+        now = int(time.time())
+        ttl_time = now + 600  # delete after 10 minutes
+
+        item = {
+            "OwnerId": player_id,
+            "PetId": pet_id,
+            "Deleted": True,
+            "Version": now,
+            "TTL": ttl_time
+        }
+        pets_to_write.append(item)
+
+    with table.batch_writer() as batch:
+        for pet in pets_to_write:
+            batch.put_item(Item=pet)
+
+    return {"status": f"soft deleted {len(pets_to_write)} pets.", "expires_in": "10 minutes"}
